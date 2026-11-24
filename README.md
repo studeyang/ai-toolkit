@@ -17,8 +17,11 @@ ai-toolkit/
 │   ├── mysql/                # 通用只读 MySQL 查询
 │   ├── archery/              # Archery SQL 查询封装
 │   └── confluence/           # Confluence 检索（第三方 mcp-atlassian）
+├── AGENTS.md                # 开源规范：安全红线、提交自检、CI 局限
 └── .github/workflows/        # CI：敏感信息扫描 + 语法检查
 ```
+
+> 在本仓库提交代码前，请先读 [AGENTS.md](AGENTS.md)。里面写清了哪些信息绝对不能进仓库、提交前必跑的自检命令，以及 CI 到底拦不住什么。
 
 ## 技能列表
 
@@ -110,12 +113,22 @@ MCP 不需要"安装"，在客户端的 `mcp.json` 里指向对应脚本的绝�
 
 ## 贡献
 
-欢迎提 Issue 和 PR。提交前请确认：
+欢迎提 Issue 和 PR。完整规范见 [AGENTS.md](AGENTS.md)，摘要如下：
 
-- 没有把内网域名、IP、账号密码、内部应用名带进来（CI 会自动扫）
+- 不要提交内网域名、IP、账号密码、内部应用名、工号、本机绝对路径（CI 会自动扫，但它只是事后报警）
 - 脚本语法检查通过（`python -m py_compile` / `node --check`）
 - `SKILL.md` 的 frontmatter 有 `name` 和 `description`
-- MCP 目录里只提交 `*_mcp_config.example.json`，真实配置文件已加入 `.gitignore`
+- MCP 目录里只提交 `*_mcp_config.example.json`，真实配置文件已在 `.gitignore` 中
+- 提交信息正文同样不能含敏感信息
+
+**维护者注意**：CI 会用 `secrets.PRIVATE_PATTERNS` 扫自己公司的域名/应用名。该 Secret 每行一个正则片段，例如：
+
+```
+your-company\.com
+internal-app-name
+```
+
+未配置时只跑通用规则（内网 IP 段、硬编码密码、私钥、本机路径），不会报错。
 
 ## 许可证
 
