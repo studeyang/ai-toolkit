@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+build/
+*.log
+npm-debug.log*
+
+# 本地环境配置——绝不要提交真实地址和凭据
+.env
+.env.local
+.env.*.local
+*.local.md
+config.local.json
+
+# MCP 真实连接配置（含明文数据库密码/Token），只提交 *.example.json
+**/*_mcp_config.json
+!**/*_mcp_config.example.json
+.mcp.json
+
+# 会话缓存（脚本运行时会生成）
+.disconf_session.json
+*.session.json
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

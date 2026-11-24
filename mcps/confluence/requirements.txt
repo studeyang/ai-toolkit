@@ -1,0 +1,3 @@
+# Confluence MCP 无需本地依赖：服务由 uvx 以隔离环境拉取并运行。
+# 这里只记录版本线索，供 pip 方式安装时参考。
+mcp-atlassian

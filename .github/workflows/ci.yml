@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 语法检查 - Python 脚本
+        run: |
+          set -e
+          fail=0
+          while IFS= read -r -d '' f; do
+            python -m py_compile "$f" || fail=1
+          done < <(find . -name "*.py" -not -path "*/node_modules/*" -print0)
+          if [ $fail -eq 0 ]; then echo "Python 语法检查通过"; else exit 1; fi
+
+      - name: 结构校验 - 每个技能必须有 SKILL.md 和合法 frontmatter
+        run: |
+          set -e
+          fail=0
+          for d in skills/*/; do
+            [ -d "$d" ] || continue
+            name=$(basename "$d")
+            if [ ! -f "$d/SKILL.md" ]; then
+              echo "::error::$name 缺少 SKILL.md"
+              fail=1
+              continue
+            fi
+            awk '/^---$/{n++; next} n==1{print}' "$d/SKILL.md" > /tmp/fm.txt
+            grep -q "^name:" /tmp/fm.txt \
+              || { echo "::error::$name 的 frontmatter 缺少 name"; fail=1; }
+            grep -q "^description:" /tmp/fm.txt \
+              || { echo "::error::$name 的 frontmatter 缺少 description"; fail=1; }
+            echo "OK $name 结构正常"
+          done
+          exit $fail
+
+      - name: 结构校验 - 每个 MCP 必须有 README 和依赖声明
+        run: |
+          set +e
+          fail=0
+          for d in mcps/*/; do
+            [ -d "$d" ] || continue
+            name=$(basename "$d")
+            [ -f "$d/README.md" ] \
+              || { echo "::error::$name 缺少 README.md"; fail=1; }
+            if [ ! -f "$d/requirements.txt" ] && [ ! -f "$d/package.json" ]; then
+              echo "::error::$name 缺少 requirements.txt 或 package.json"
+              fail=1
+            fi
+            echo "OK $name 结构正常"
+          done
+          exit $fail
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 扫描内网域名与硬编码凭据
+        env:
+          # 自定义的敏感词清单放在仓库 Secret 里，不写进公开源码。
+          # 原因：把内部域名/公司名明文写进扫描正则，等于自己泄露一遍——
+          # 这个仓库是公开的，写进 ci.yml 就等于挂到首页上。
+          # 配置方式见 CONTRIBUTING 里的说明；未配置时下面几条通用规则照旧生效。
+          PRIVATE_PATTERNS: ${{ secrets.PRIVATE_PATTERNS }}
+        run: |
+          # 这个仓库是公开的：敏感信息一旦推上来，即使后续 commit 删掉，
+          # git 历史里依然永久可查。所以必须在合并前拦住。
+          set +e
+          fail=0
+
+          # 通用规则：内网 IP 段。不需要知道公司名也能拦。
+          ipre='10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.'
+          net=$(git grep -nEI "$ipre" -- ':!*.md' ':!LICENSE' ':!.github/' 2>/dev/null)
+
+          # 可选规则：Secret 里配置的私有清单（公司域名、内部应用名等）。
+          # 用多行文本、每行一个正则片段，在 CI 里拼成正则。
+          priv=""
+          if [ -n "$PRIVATE_PATTERNS" ]; then
+            re=$(printf '%s' "$PRIVATE_PATTERNS" | tr '\n' '|' | sed 's/|$//')
+            priv=$(git grep -nEI "$re" -- ':!*.md' ':!LICENSE' ':!.github/' 2>/dev/null)
+          fi
+
+          # 规则 2：字面量形式的凭据赋值。
+          # 必须排除 os.environ.get("DISCONF_PASSWORD") 这类环境变量读取——
+          # 早期版本用宽松的 password=...{6,} 会把这行正常代码误判成硬编码密码。
+          creds=$(git grep -nEI \
+                  'password[^=]*=\s*"[^"]{6,}"|passwd[^=]*=\s*"[^"]{6,}"|secret[^=]*=\s*"[^"]{6,}"|admin\s*/\s*admin' -- \
+                  ':!*.md' ':!LICENSE' ':!*README*' 2>/dev/null \
+                  | grep -vE '"[A-Z0-9_]+"')
+
+          # 规则 3：私钥特征
+          keys=$(git grep -nE 'BEGIN [A-Z ]*PRIVATE KEY' 2>/dev/null)
+
+          # 规则 4：本地绝对路径。占位写法（<you> / %USERPROFILE% / /absolute/path）不算违规。
+          # 这条是新加的：MCP 客户端配置示例里很容易粘进自己机器的真实路径，
+          # 既泄露用户名，别人拷走也用不了。
+          paths=$(git grep -nEI \
+                  '[A-Za-z]:[\\/]Users[\\/][A-Za-z0-9._-]+|/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|[A-Za-z]:[\\/](github|work|workspace|projects|Documents)[\\/]' \
+                  -- ':!.github/' 2>/dev/null \
+                  | grep -vE '<|%USERPROFILE%|USERPROFILE')
+
+          # Markdown 允许示例，但必须显式标注为占位/示例
+          md=$(git grep -nEI "$ipre" -- '*.md' 2>/dev/null \
+               | grep -viE 'example|placeholder|your[_-]|xxx|<your')
+          if [ -n "$PRIVATE_PATTERNS" ]; then
+            re=$(printf '%s' "$PRIVATE_PATTERNS" | tr '\n' '|' | sed 's/|$//')
+            md="$md$(git grep -nEI "$re" -- '*.md' 2>/dev/null \
+                 | grep -viE 'example|placeholder|your[_-]|xxx|<your')"
+          fi
+
+          for var in net priv creds keys paths md; do
+            val="${!var}"
+            if [ -n "$val" ]; then
+              echo "::error::检测到疑似敏感信息（$var），请改用占位符"
+              echo "$val"
+              fail=1
+            fi
+          done
+
+          if [ $fail -eq 0 ]; then echo "敏感信息扫描通过"; fi
+          exit $fail
+
+      - name: 检查不该提交的文件
+        run: |
+          set +e
+          # _mcp_config.json 是真实连接配置（含明文密码），模板必须叫 *_mcp_config.example.json
+          bad=$(git ls-files \
+                | grep -E '__pycache__|\.pyc$|^\.env$|session\.json$|_mcp_config\.json$' \
+                | grep -vE '_mcp_config\.example\.json$')
+          if [ -n "$bad" ]; then
+            echo "::error::以下文件不应提交，请加入 .gitignore："
+            echo "$bad"
+            exit 1
+          fi
+          echo "文件清单检查通过"

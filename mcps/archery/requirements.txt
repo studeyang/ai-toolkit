@@ -1,0 +1,4 @@
+# archery_client.py 是纯标准库实现，无需任何第三方依赖。
+# 只有 archery_mcp_server.py（MCP 服务器入口）需要 mcp SDK。
+# 仅用 CLI 的话可以跳过这个文件。
+mcp>=2.0
