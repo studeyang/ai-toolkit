@@ -84,42 +84,45 @@ jobs:
           fail=0
 
           # 通用规则：内网 IP 段。不需要知道公司名也能拦。
+          # 注意 -niEI 里的两个选项含义完全不同，别写混：
+          #   -i = 忽略大小写（缺了它，全大写的域名写法会漏网）
+          #   -I = 跳过二进制文件（避免图片/压缩包里出现假匹配）
           ipre='10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.[0-9]+\.[0-9]+|172\.(1[6-9]|2[0-9]|3[01])\.'
-          net=$(git grep -nEI "$ipre" -- ':!*.md' ':!LICENSE' ':!.github/' 2>/dev/null)
+          net=$(git grep -niEI "$ipre" -- ':!*.md' ':!LICENSE' ':!.github/' 2>/dev/null)
 
           # 可选规则：Secret 里配置的私有清单（公司域名、内部应用名等）。
           # 用多行文本、每行一个正则片段，在 CI 里拼成正则。
           priv=""
           if [ -n "$PRIVATE_PATTERNS" ]; then
             re=$(printf '%s' "$PRIVATE_PATTERNS" | tr '\n' '|' | sed 's/|$//')
-            priv=$(git grep -nEI "$re" -- ':!*.md' ':!LICENSE' ':!.github/' 2>/dev/null)
+            priv=$(git grep -niEI "$re" -- ':!*.md' ':!LICENSE' ':!.github/' 2>/dev/null)
           fi
 
           # 规则 2：字面量形式的凭据赋值。
           # 必须排除 os.environ.get("DISCONF_PASSWORD") 这类环境变量读取——
           # 早期版本用宽松的 password=...{6,} 会把这行正常代码误判成硬编码密码。
-          creds=$(git grep -nEI \
+          creds=$(git grep -niEI \
                   'password[^=]*=\s*"[^"]{6,}"|passwd[^=]*=\s*"[^"]{6,}"|secret[^=]*=\s*"[^"]{6,}"|admin\s*/\s*admin' -- \
                   ':!*.md' ':!LICENSE' ':!*README*' 2>/dev/null \
                   | grep -vE '"[A-Z0-9_]+"')
 
           # 规则 3：私钥特征
-          keys=$(git grep -nE 'BEGIN [A-Z ]*PRIVATE KEY' 2>/dev/null)
+          keys=$(git grep -niE 'BEGIN [A-Z ]*PRIVATE KEY' 2>/dev/null)
 
           # 规则 4：本地绝对路径。占位写法（<you> / %USERPROFILE% / /absolute/path）不算违规。
           # 这条是新加的：MCP 客户端配置示例里很容易粘进自己机器的真实路径，
           # 既泄露用户名，别人拷走也用不了。
-          paths=$(git grep -nEI \
+          paths=$(git grep -niEI \
                   '[A-Za-z]:[\\/]Users[\\/][A-Za-z0-9._-]+|/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|[A-Za-z]:[\\/](github|work|workspace|projects|Documents)[\\/]' \
                   -- ':!.github/' 2>/dev/null \
                   | grep -vE '<|%USERPROFILE%|USERPROFILE')
 
           # Markdown 允许示例，但必须显式标注为占位/示例
-          md=$(git grep -nEI "$ipre" -- '*.md' 2>/dev/null \
+          md=$(git grep -niEI "$ipre" -- '*.md' 2>/dev/null \
                | grep -viE 'example|placeholder|your[_-]|xxx|<your')
           if [ -n "$PRIVATE_PATTERNS" ]; then
             re=$(printf '%s' "$PRIVATE_PATTERNS" | tr '\n' '|' | sed 's/|$//')
-            md="$md$(git grep -nEI "$re" -- '*.md' 2>/dev/null \
+            md="$md$(git grep -niEI "$re" -- '*.md' 2>/dev/null \
                  | grep -viE 'example|placeholder|your[_-]|xxx|<your')"
           fi
 
